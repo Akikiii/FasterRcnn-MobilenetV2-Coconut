@@ -1,4 +1,4 @@
-
+import torch
 
 class Config:
     backbone = 'mobilenet'  # [vgg16, resnet-fpn, mobilenet, resnet50_fpn]
@@ -42,7 +42,7 @@ class Config:
     box_positive_fraction = 0.25
     bbox_reg_weights = None
 
-    device_name = 'cuda:7'
+    device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     resume = ''  # pretrained_weights
     start_epoch = 0  # start epoch
@@ -59,9 +59,9 @@ class Config:
 
     batch_size = 6
 
-    num_class = 80 + 1  # foreground + 1 background
-    data_root_dir = " "
-    model_save_dir = " "
+    num_class = 2
+    data_root_dir = "C:\\Users\\Admin\\Desktop\\Coding\\Python\\FasterRcnn-MobilenetV2-Coconut\\COCODevKit"
+    model_save_dir = "C:\\Users\\Admin\\Desktop\\Coding\\Python\\FasterRcnn-MobilenetV2-Coconut\\saved_models"
 
 
 cfg = Config()

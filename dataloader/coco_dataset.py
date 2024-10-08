@@ -13,16 +13,21 @@ from torch.utils.data import Dataset
 
 
 class coco(Dataset):
-    def __init__(self, root_dir, image_set, year, transforms=None):
-
+    def __init__(self, root_dir, image_set, transforms=None, year=None):
         self._root_dir = root_dir
-        self._year = year
-        self._image_set = image_set
-        self._data_name = image_set + year
-        self._json_path = self._get_ann_file()
         self._transforms = transforms
 
-        # load COCO API
+        # If year is provided, use it. If not, assume the image_set is a full file name.
+        if year is None:
+            self._json_path = os.path.join(self._root_dir, 'annotations', image_set)
+            self._data_name = os.path.splitext(image_set)[0]  # Strip the .json extension for the data name
+        else:
+            self._year = year
+            self._image_set = image_set
+            self._data_name = image_set + year
+            self._json_path = self._get_ann_file()
+
+        # Load COCO API
         self._COCO = COCO(self._json_path)
 
         with open(self._json_path) as anno_file:
@@ -47,22 +52,20 @@ class coco(Dataset):
     def _get_ann_file(self):
         prefix = 'instances' if self._image_set.find('test') == -1 else 'image_info'
         return os.path.join(self._root_dir, 'annotations', prefix + '_' + self._image_set + self._year + '.json')
-
+    
     def _image_path_from_index(self, index):
         """
-        Construct an image path from the image's "index" identifier.
+        Return the image path directly from the 'file_name' field in the JSON annotations.
         """
-        # Example image path for index=119993:
-        #   images/train2014/COCO_train2014_000000119993.jpg
-        file_name = (str(index).zfill(12) + '.jpg')
-        image_path = os.path.join(self._root_dir, self._data_name, file_name)
+        image_path = self.anno['images'][index]['file_name']
         assert os.path.exists(image_path), 'Path does not exist: {}'.format(image_path)
         return image_path
+
 
     def __getitem__(self, idx):
         a = self.anno['images'][idx]
         image_idx = a['id']
-        img_path = os.path.join(self._root_dir, self._data_name, self._image_path_from_index(image_idx))
+        img_path = self._image_path_from_index(idx)  # Get the full path from the JSON
         image = Image.open(img_path)
 
         width = a['width']
@@ -71,7 +74,7 @@ class coco(Dataset):
         annIds = self._COCO.getAnnIds(imgIds=image_idx, iscrowd=None)
         objs = self._COCO.loadAnns(annIds)
 
-        # Sanitize bboxes -- some are invalid
+        # The rest of the method remains unchanged...
         valid_objs = []
         for obj in objs:
             x1 = np.max((0, obj['bbox'][0]))
@@ -81,25 +84,23 @@ class coco(Dataset):
             if obj['area'] > 0 and x2 > x1 and y2 > y1:
                 obj['clean_bbox'] = [x1, y1, x2, y2]
                 valid_objs.append(obj)
-        objs = valid_objs
-        num_objs = len(objs)
-
+        
+        num_objs = len(valid_objs)
         boxes = np.zeros((num_objs, 4), dtype=np.float32)
         gt_classes = np.zeros((num_objs), dtype=np.int32)
-
         iscrowd = []
-        for ix, obj in enumerate(objs):
+        
+        for ix, obj in enumerate(valid_objs):
             cls = self.coco_cat_id_to_class_ind[obj['category_id']]
             boxes[ix, :] = obj['clean_bbox']
             gt_classes[ix] = cls
             iscrowd.append(int(obj["iscrowd"]))
-
-        # convert everything into a torch.Tensor
+        
         image_id = torch.tensor([image_idx])
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
         gt_classes = torch.as_tensor(gt_classes, dtype=torch.int32)
         iscrowd = torch.as_tensor(iscrowd, dtype=torch.int32)
-
+        
         area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
 
         target = {"boxes": boxes, "labels": gt_classes, "image_id": image_id, "area": area, "iscrowd": iscrowd}
